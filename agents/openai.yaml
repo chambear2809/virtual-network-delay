@@ -1,0 +1,7 @@
+interface:
+  display_name: "Virtual Network Delay"
+  short_description: "Build VM and Docker latency labs"
+  default_prompt: "Use $virtual-network-delay to deploy a local Ubuntu router latency lab and validate network delay."
+
+policy:
+  allow_implicit_invocation: true
