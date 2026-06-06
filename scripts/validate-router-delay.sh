@@ -21,7 +21,7 @@ usage() {
 Usage: validate-router-delay.sh validate [options]
 
 Options:
-  --provider <docker|kvm|vmware>
+  --provider <docker|kvm|vmware|esxi>
   --lab-name <name>
   --probe-url <url>
   --delay-ms <ms>
@@ -162,12 +162,40 @@ collect_samples_ms() {
 
   require_cmd curl
   for ((index = 0; index < samples; index += 1)); do
-    elapsed_seconds="$(curl -o /dev/null -sS -w '%{time_total}' "${url}")"
+    elapsed_seconds="$(curl --connect-timeout 5 --max-time 20 -o /dev/null -sS -w '%{time_total}' "${url}")"
     elapsed_ms="$(awk -v seconds="${elapsed_seconds}" 'BEGIN { printf "%.0f", seconds * 1000 }')"
     output="${output},${elapsed_ms}"
   done
 
   printf '%s\n' "${output#,}"
+}
+
+probe_url_host() {
+  local url="$1"
+  local url_re='^[A-Za-z][A-Za-z0-9+.-]*://(\[[^]]+\]|[^/?#:]+)(:[0-9]+)?([/?#].*)?$'
+  local host
+
+  if [[ "${url}" =~ ${url_re} ]]; then
+    host="${BASH_REMATCH[1]}"
+    host="${host#[}"
+    host="${host%]}"
+    printf '%s\n' "${host}"
+  fi
+}
+
+reject_direct_backend_probe() {
+  local probe_host
+  local backend_host
+
+  [[ -n "${BACKEND_HOST:-}" ]] || return 0
+  probe_host="$(probe_url_host "${PROBE_URL}")"
+  [[ -n "${probe_host}" ]] || return 0
+  backend_host="${BACKEND_HOST#[}"
+  backend_host="${backend_host%]}"
+
+  if [[ "${probe_host}" == "${backend_host}" ]]; then
+    fail "Probe URL host ${probe_host} matches BACKEND_HOST. Validate through the router URL so the path remains client -> router -> private backend."
+  fi
 }
 
 control_router_delay() {
@@ -184,6 +212,21 @@ control_router_delay() {
   fi
 
   bash "${SCRIPT_DIR}/router-delay.sh" "${args[@]}"
+}
+
+render_router_delay_command() {
+  local action="$1"
+  local args=(bash scripts/router-delay.sh "${action}" --provider "${TARGET_PROVIDER}")
+
+  [[ "${LAB_NAME}" != "virtual-network-delay" ]] && args+=(--lab-name "${LAB_NAME}")
+  [[ -n "${ROUTER_DELAY_INTERFACE}" ]] && args+=(--interface "${ROUTER_DELAY_INTERFACE}")
+  if provider_is_vm "${TARGET_PROVIDER}"; then
+    [[ -n "${ROUTER_HOST}" ]] && args+=(--router-host "${ROUTER_HOST}")
+    [[ -n "${SSH_PRIVATE_KEY_FILE}" ]] && args+=(--ssh-key "${SSH_PRIVATE_KEY_FILE}")
+    [[ "${ROUTER_SSH_USER}" != "ubuntu" ]] && args+=(--ssh-user "${ROUTER_SSH_USER}")
+  fi
+
+  render_shell_command "${args[@]}"
 }
 
 validate_delta() {
@@ -222,6 +265,7 @@ validate_probe() {
 
   [[ -n "${PROBE_URL}" ]] || fail "Missing --probe-url and no ROUTER_PUBLIC_URL in state."
   [[ "${SAMPLES}" =~ ^[0-9]+$ && "${SAMPLES}" -ge 1 ]] || fail "--samples must be a positive integer."
+  reject_direct_backend_probe
 
   if [[ -n "${VALIDATE_ROUTER_DELAY_BASELINE_SAMPLES_MS:-}" && -n "${VALIDATE_ROUTER_DELAY_DELAYED_SAMPLES_MS:-}" ]]; then
     baseline_samples="${VALIDATE_ROUTER_DELAY_BASELINE_SAMPLES_MS}"
@@ -246,7 +290,7 @@ validate_probe() {
   validate_delta "${baseline_samples}" "${delayed_samples}"
   if bool_is_true "${controlled_delay}"; then
     printf 'delay_state=enabled\n'
-    printf 'disable_command=bash scripts/router-delay.sh disable --provider %s\n' "${TARGET_PROVIDER}"
+    printf 'disable_command=%s\n' "$(render_router_delay_command disable)"
   elif bool_is_true "${RESTORE_DELAY}"; then
     printf 'delay_state=disabled\n'
   fi

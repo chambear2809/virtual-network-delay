@@ -29,6 +29,14 @@ main() {
   assert_contains "${output}" "validate-router-delay.sh validate --provider docker --lab-name demo-a --delay-ms 150"
   assert_file_contains "${tmp}/state2/docker/demo-a.env" "ROUTER_PUBLIC_URL=http://127.0.0.1:18081/"
 
+  output="$(STATE_ROOT="${tmp}/state2" bash "${REPO_ROOT}/scripts/docker-lab.sh" status --dry-run --lab-name demo-a)"
+  assert_contains "${output}" "docker compose"
+  assert_contains "${output}" "router_url=http://127.0.0.1:18081/"
+
+  output="$(STATE_ROOT="${tmp}/state2" bash "${REPO_ROOT}/scripts/docker-lab.sh" destroy --dry-run --lab-name demo-a --yes)"
+  assert_contains "${output}" "down -v --remove-orphans"
+  assert_contains "${output}" "rm -f"
+
   pass_test "docker assets and dry-run state"
 }
 

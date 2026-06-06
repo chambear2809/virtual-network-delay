@@ -18,7 +18,7 @@ usage() {
 Usage: backend-wire.sh <render|apply> [options]
 
 Options:
-  --provider <docker|kvm|vmware>
+  --provider <docker|kvm|vmware|esxi>
   --lab-name <name>
   --protocol <http|https|rtsp|tcp>
   --backend-host <host>
@@ -114,11 +114,20 @@ load_target_state() {
   fi
 
   if [[ -z "${BACKEND_HOST}" ]]; then
-    if [[ "${TARGET_PROVIDER}" == "docker" ]]; then
-      BACKEND_HOST="backend"
-    else
-      BACKEND_HOST="${BACKEND_HOST:-${KVM_BACKEND_PRIVATE_IP:-${VMWARE_BACKEND_PRIVATE_IP:-}}}"
-    fi
+    case "${TARGET_PROVIDER}" in
+      docker)
+        BACKEND_HOST="backend"
+        ;;
+      kvm)
+        BACKEND_HOST="${KVM_BACKEND_PRIVATE_IP:-}"
+        ;;
+      vmware)
+        BACKEND_HOST="${VMWARE_BACKEND_PRIVATE_IP:-}"
+        ;;
+      esxi)
+        BACKEND_HOST="${ESXI_BACKEND_PRIVATE_IP:-}"
+        ;;
+    esac
   fi
 }
 
@@ -188,7 +197,7 @@ main() {
           apply_docker_config
           record_backend_state
           ;;
-        kvm|vmware)
+        kvm|vmware|esxi)
           [[ -n "${ROUTER_HOST}" ]] || fail "Missing router host. Deploy the lab or pass --router-host."
           apply_vm_config
           record_backend_state

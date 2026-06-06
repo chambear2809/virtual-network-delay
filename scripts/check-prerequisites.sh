@@ -10,7 +10,7 @@ TARGET_PROVIDER="${PROVIDER:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: check-prerequisites.sh [--provider docker|kvm|vmware|all]
+Usage: check-prerequisites.sh [--provider docker|kvm|vmware|esxi|all]
 EOF
 }
 
@@ -31,9 +31,11 @@ check_docker() {
 
 check_kvm() {
   local cmd
-  for cmd in virsh virt-install qemu-img curl ssh ssh-keygen scp; do
+  for cmd in virsh virt-install qemu-img curl ssh ssh-keygen scp setfacl; do
     require_cmd "${cmd}"
   done
+  command -v dnsmasq >/dev/null 2>&1 || [[ -x /usr/sbin/dnsmasq ]] \
+    || fail "Missing required command: dnsmasq. Install dnsmasq-base so libvirt NAT networks can start."
   has_any_iso_tool || fail "Need one NoCloud seed ISO tool: cloud-localds, genisoimage, mkisofs, or hdiutil."
   log "kvm prerequisites ok"
 }
@@ -45,6 +47,15 @@ check_vmware() {
   done
   has_any_iso_tool || fail "Need one NoCloud seed ISO tool: cloud-localds, genisoimage, mkisofs, or hdiutil."
   log "vmware prerequisites ok"
+}
+
+check_esxi() {
+  local cmd
+  for cmd in govc qemu-img curl ssh ssh-keygen scp; do
+    require_cmd "${cmd}"
+  done
+  has_any_iso_tool || fail "Need one NoCloud seed ISO tool: cloud-localds, genisoimage, mkisofs, or hdiutil."
+  log "esxi prerequisites ok"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -73,10 +84,14 @@ case "${TARGET_PROVIDER}" in
   vmware)
     check_vmware
     ;;
+  esxi)
+    check_esxi
+    ;;
   all)
     check_docker
     check_kvm
     check_vmware
+    check_esxi
     ;;
   *)
     fail "Unknown provider: ${TARGET_PROVIDER}"

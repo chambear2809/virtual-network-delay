@@ -15,10 +15,10 @@ TARGET_PROVIDER="${PROVIDER:-${TARGET_PROVIDER}}"
 
 usage() {
   cat <<'EOF'
-Usage: destroy-virtual-network-delay.sh --provider docker|kvm|vmware --yes
+Usage: destroy-virtual-network-delay.sh --provider docker|kvm|vmware|esxi --yes
 
 Options:
-  --provider <docker|kvm|vmware>
+  --provider <docker|kvm|vmware|esxi>
   --lab-name <name>
   --yes
 EOF
@@ -59,6 +59,9 @@ case "${TARGET_PROVIDER}" in
     ;;
   vmware)
     bash "${SCRIPT_DIR}/vmware-lab.sh" destroy --lab-name "${LAB_NAME}" --yes
+    ;;
+  esxi)
+    bash "${SCRIPT_DIR}/esxi-lab.sh" destroy --lab-name "${LAB_NAME}" --yes
     ;;
   *)
     fail "Unknown provider: ${TARGET_PROVIDER}"

@@ -19,7 +19,7 @@ usage() {
 Usage: demo-latency.sh [options]
 
 Options:
-  --provider <docker|kvm|vmware>
+  --provider <docker|kvm|vmware|esxi>
   --lab-name <name>
   --public-port <port>       Docker host port only
   --delay-ms <ms>
@@ -107,6 +107,9 @@ case "${TARGET_PROVIDER}" in
   vmware)
     bash "${SCRIPT_DIR}/vmware-lab.sh" deploy "${deploy_args[@]}"
     ;;
+  esxi)
+    bash "${SCRIPT_DIR}/esxi-lab.sh" deploy "${deploy_args[@]}"
+    ;;
   *)
     fail "Unknown provider: ${TARGET_PROVIDER}"
     ;;
@@ -114,4 +117,6 @@ esac
 
 if ! bool_is_true "${DRY_RUN}"; then
   bash "${SCRIPT_DIR}/validate-router-delay.sh" validate "${validate_args[@]}"
+else
+  printf 'planned_validate_command=%s\n' "$(render_shell_command bash scripts/validate-router-delay.sh validate "${validate_args[@]}")"
 fi

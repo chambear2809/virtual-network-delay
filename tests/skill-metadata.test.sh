@@ -8,7 +8,7 @@ source "${TEST_DIR}/helpers.sh"
 
 main() {
   assert_file_contains "${REPO_ROOT}/SKILL.md" "name: virtual-network-delay"
-  assert_file_contains "${REPO_ROOT}/SKILL.md" "Docker, KVM/libvirt, and VMware"
+  assert_file_contains "${REPO_ROOT}/SKILL.md" "Docker, KVM/libvirt, VMware Fusion/Workstation, and ESXi/vCenter"
   assert_file_contains "${REPO_ROOT}/SKILL.md" "One-command demo"
   assert_file_contains "${REPO_ROOT}/agents/openai.yaml" "default_prompt: \"Use \$virtual-network-delay"
   assert_file_contains "${REPO_ROOT}/README.md" "--restore-delay"

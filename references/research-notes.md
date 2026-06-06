@@ -80,3 +80,21 @@ Relevant constraints:
 - `vmrun -T fusion start <vmx> nogui` is the documented command-line power path for Fusion.
 - `vmrun` and newer `vmcli` can operate on `.vmx` paths.
 - `qemu-img convert` supports VMDK output; QEMU positions VMDK primarily as an interchange format.
+
+## ESXi / vCenter
+
+Primary references:
+
+- govmomi/govc: https://github.com/vmware/govmomi
+- govc usage reference: https://raw.githubusercontent.com/vmware/govmomi/main/govc/USAGE.md
+- cloud-init VMware datasource: https://docs.cloud-init.io/en/latest/reference/datasources/vmware.html
+- QEMU `qemu-img` utility: https://www.qemu.org/docs/master/tools/qemu-img.html
+
+Relevant constraints:
+
+- `govc import.vmdk` requires local VMDK files in `streamOptimized` format.
+- `govc` accepts standard environment variables for URL, credentials, TLS behavior, datacenter, datastore, host, resource pool, and inventory folder placement.
+- `govc vm.create` supports existing datastore disks, ISO attachment, EFI firmware, guest OS IDs, vmxnet3 adapters, and static NIC MAC addresses.
+- `govc vm.network.add` supports adding the router private NIC after VM creation.
+- `govc vm.ip -a -v4 -n <mac>` filters IP discovery to the router public NIC and depends on VMware Tools reporting guest networking.
+- NoCloud seed ISOs avoid relying on vSphere guest customization or VMware guestinfo transport during first boot.

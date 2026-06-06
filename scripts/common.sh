@@ -10,7 +10,7 @@ COMMON_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${COMMON_SCRIPT_DIR}/.." && pwd)"
 
 VND_INITIAL_ENV_VARS="
-LAB_NAME PROVIDER UBUNTU_RELEASE UBUNTU_VERSION UBUNTU_IMAGE_URL DOCKER_UBUNTU_IMAGE
+LAB_NAME PROVIDER UBUNTU_RELEASE UBUNTU_VERSION UBUNTU_IMAGE_ARCH UBUNTU_IMAGE_URL DOCKER_UBUNTU_IMAGE
 STATE_ROOT STATE_DIR STATE_FILE IMAGE_DIR DRY_RUN DRY_RUN_LOG
 SSH_PRIVATE_KEY_FILE SSH_PUBLIC_KEY_FILE ROUTER_SSH_USER ROUTER_HOST ROUTER_PUBLIC_URL ROUTER_DELAY_INTERFACE
 BACKEND_PROTOCOL BACKEND_HOST BACKEND_PORT PUBLIC_PORT DELAY_MS JITTER_MS LOSS_PCT
@@ -22,6 +22,11 @@ KVM_ROUTER_PRIVATE_IP KVM_BACKEND_PRIVATE_IP KVM_ROUTER_PUBLIC_MAC KVM_ROUTER_PR
 VMWARE_VM_ROOT VMWARE_VMRUN_TYPE VMWARE_GUEST_OS VMWARE_HARDWARE_VERSION VMWARE_PUBLIC_NETWORK VMWARE_PRIVATE_NETWORK
 VMWARE_ROUTER_PRIVATE_IP VMWARE_BACKEND_PRIVATE_IP VMWARE_PRIVATE_PREFIX
 VMWARE_ROUTER_PUBLIC_MAC VMWARE_ROUTER_PRIVATE_MAC VMWARE_BACKEND_PRIVATE_MAC
+ESXI_PUBLIC_NETWORK ESXI_PRIVATE_NETWORK ESXI_NETWORK_MODE
+ESXI_PUBLIC_VSWITCH ESXI_PRIVATE_VSWITCH ESXI_PUBLIC_VLAN_ID ESXI_PRIVATE_VLAN_ID
+ESXI_ROUTER_PRIVATE_IP ESXI_BACKEND_PRIVATE_IP ESXI_PRIVATE_PREFIX
+ESXI_ROUTER_PUBLIC_MAC ESXI_ROUTER_PRIVATE_MAC ESXI_BACKEND_PRIVATE_MAC
+GOVC_URL GOVC_USERNAME GOVC_PASSWORD GOVC_INSECURE GOVC_DATACENTER GOVC_DATASTORE GOVC_HOST GOVC_RESOURCE_POOL GOVC_FOLDER
 VM_MEMORY_MB VM_VCPUS VM_DISK_SIZE
 "
 
@@ -36,6 +41,7 @@ LAB_NAME="${LAB_NAME:-virtual-network-delay}"
 PROVIDER="${PROVIDER:-docker}"
 UBUNTU_RELEASE="${UBUNTU_RELEASE:-noble}"
 UBUNTU_VERSION="${UBUNTU_VERSION:-24.04}"
+UBUNTU_IMAGE_ARCH="${UBUNTU_IMAGE_ARCH:-}"
 DOCKER_UBUNTU_IMAGE="${DOCKER_UBUNTU_IMAGE:-ubuntu:24.04}"
 
 STATE_ROOT="${STATE_ROOT:-${REPO_ROOT}/.generated}"
@@ -210,6 +216,19 @@ validate_port() {
 
 ubuntu_cloud_arch() {
   local machine
+
+  if [[ -n "${UBUNTU_IMAGE_ARCH}" ]]; then
+    case "${UBUNTU_IMAGE_ARCH}" in
+      amd64|arm64)
+        printf '%s\n' "${UBUNTU_IMAGE_ARCH}"
+        return 0
+        ;;
+      *)
+        fail "Unsupported UBUNTU_IMAGE_ARCH: ${UBUNTU_IMAGE_ARCH}"
+        ;;
+    esac
+  fi
+
   machine="$(uname -m)"
 
   case "${machine}" in
@@ -401,7 +420,7 @@ write_router_user_data() {
   local ssh_public_key="$6"
   local open_vm_tools_package=""
 
-  if [[ "${provider_name}" == "vmware" ]]; then
+  if [[ "${provider_name}" == "vmware" || "${provider_name}" == "esxi" ]]; then
     open_vm_tools_package="  - open-vm-tools"
   fi
 
@@ -700,6 +719,7 @@ prepare_vm_disk() {
   local output_disk="$2"
   local output_format="$3"
   local disk_size="$4"
+  local temp_disk
 
   mkdir -p "$(dirname "${output_disk}")"
   if [[ -f "${output_disk}" ]]; then
@@ -708,12 +728,16 @@ prepare_vm_disk() {
   fi
 
   if [[ "${output_format}" == "vmdk" ]]; then
-    run_cmd qemu-img convert -O vmdk -o subformat=monolithicSparse "${source_image}" "${output_disk}"
+    temp_disk="${output_disk}.qcow2.tmp"
+    run_cmd rm -f "${temp_disk}"
+    run_cmd qemu-img convert -O qcow2 "${source_image}" "${temp_disk}"
+    run_cmd qemu-img resize "${temp_disk}" "${disk_size}"
+    run_cmd qemu-img convert -O vmdk -o subformat=monolithicSparse "${temp_disk}" "${output_disk}"
+    run_cmd rm -f "${temp_disk}"
   else
     run_cmd qemu-img convert -O "${output_format}" "${source_image}" "${output_disk}"
+    run_cmd qemu-img resize "${output_disk}" "${disk_size}"
   fi
-
-  run_cmd qemu-img resize "${output_disk}" "${disk_size}"
 }
 
 ssh_run() {
@@ -721,7 +745,7 @@ ssh_run() {
   local user="$2"
   local key_file="$3"
   local remote_command="$4"
-  local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+  local ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5)
 
   [[ -n "${host}" ]] || fail "Missing SSH host."
   if [[ -n "${key_file}" ]]; then
@@ -740,7 +764,7 @@ ssh_run() {
 scp_to_router() {
   local local_file="$1"
   local remote_path="$2"
-  local ssh_opts=(-o StrictHostKeyChecking=accept-new)
+  local ssh_opts=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=5)
 
   [[ -n "${ROUTER_HOST}" ]] || fail "Missing router host."
   if [[ -n "${SSH_PRIVATE_KEY_FILE}" ]]; then
@@ -830,5 +854,5 @@ print_lab_summary() {
 }
 
 provider_is_vm() {
-  [[ "$1" == "kvm" || "$1" == "vmware" ]]
+  [[ "$1" == "kvm" || "$1" == "vmware" || "$1" == "esxi" ]]
 }

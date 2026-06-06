@@ -1,11 +1,12 @@
 ---
 name: virtual-network-delay
-description: Build and operate local Ubuntu-based virtual network-delay labs for Docker, KVM/libvirt, and VMware Fusion/Workstation. Use when Codex needs to create a router-and-backend environment where HAProxy forwards traffic through a controlled path and Linux tc netem injects delay, jitter, or loss for latency demos, protocol testing, validation, or cleanup on local virtualization platforms.
+description: Build and operate Ubuntu-based virtual network-delay labs for Docker, KVM/libvirt, VMware Fusion/Workstation, and ESXi/vCenter. Use when Codex needs to create a router-and-backend environment where HAProxy forwards traffic through a controlled path and Linux tc netem injects delay, jitter, or loss for latency demos, protocol testing, validation, or cleanup on local or vSphere virtualization platforms.
+compatibility: Requires Bash plus provider tooling such as Docker Compose, libvirt/KVM, vmrun, or govc/qemu-img; network access for Ubuntu images and vSphere access for ESXi.
 ---
 
 # Virtual Network Delay
 
-Use this skill when the user wants a local, reproducible network-delay lab without AWS. The lab always keeps one symptom path: host or client traffic enters a router, HAProxy forwards to a private backend, and `tc netem` is applied on the router interface that carries responses back to the client.
+Use this skill when the user wants a reproducible network-delay lab without AWS. The lab always keeps one symptom path: host or client traffic enters a router, HAProxy forwards to a private backend, and `tc netem` is applied on the router interface that carries responses back to the client.
 
 ## Workflow
 
@@ -13,22 +14,26 @@ Use this skill when the user wants a local, reproducible network-delay lab witho
    - Prefer `docker` for fast local validation and CI-style tests.
    - Use `kvm` on Linux hosts with libvirt and hardware virtualization.
    - Use `vmware` on hosts with VMware Fusion or Workstation and `vmrun`.
+   - Use `esxi` for standalone ESXi or vCenter-managed targets with `govc`.
    - Default Ubuntu base is `ubuntu:24.04` for Docker and Ubuntu Noble 24.04 cloud images for VM providers. Override with `.env` only when the platform has been checked.
 
 2. Check prerequisites.
-   - Entry point: `scripts/check-prerequisites.sh --provider <docker|kvm|vmware|all>`
+   - Entry point: `scripts/check-prerequisites.sh --provider <docker|kvm|vmware|esxi|all>`
    - Docker requires Docker Compose and uses `cap_add: NET_ADMIN` so the router can manage `tc`.
    - KVM requires `virsh`, `virt-install`, `qemu-img`, SSH tools, and a NoCloud seed ISO tool.
    - VMware requires `vmrun`, `qemu-img`, SSH tools, and a NoCloud seed ISO tool.
+   - ESXi requires `govc`, `qemu-img`, SSH tools, and a NoCloud seed ISO tool.
 
 3. Deploy a lab.
    - Docker: `scripts/docker-lab.sh deploy`
    - KVM: `scripts/kvm-lab.sh deploy`
    - VMware: `scripts/vmware-lab.sh deploy`
+   - ESXi: `scripts/esxi-lab.sh deploy`
    - One-command demo: `scripts/demo-latency.sh --provider docker --delay-ms 150`
    - All deploy scripts accept `--dry-run` to render files and show commands without creating VMs or containers.
    - Generated state is written under `.generated/<provider>/<lab>.env`.
    - Deploy and status commands print the router URL and copy-ready next commands.
+   - ESXi uses `GOVC_URL`, `GOVC_USERNAME`, `GOVC_PASSWORD`, `GOVC_INSECURE`, and optional govc placement variables. Do not commit govc credentials.
 
 4. Wire or rewire a backend.
    - Render only: `scripts/backend-wire.sh render --provider <provider> --backend-host <host> --backend-port <port>`
@@ -54,6 +59,6 @@ Use this skill when the user wants a local, reproducible network-delay lab witho
 
 ## Reference
 
-Read `references/platform-contract.md` before changing topology, routing, HAProxy listener behavior, state-file fields, or validation assumptions.
+Read [references/platform-contract.md](references/platform-contract.md) before changing topology, routing, HAProxy listener behavior, state-file fields, or validation assumptions.
 
-Read `references/research-notes.md` when changing provider-specific implementation details such as NoCloud media, libvirt network XML, Docker capabilities, VMware networking, Ubuntu image selection, or `tc netem` semantics.
+Read [references/research-notes.md](references/research-notes.md) when changing provider-specific implementation details such as NoCloud media, libvirt network XML, Docker capabilities, VMware networking, Ubuntu image selection, or `tc netem` semantics.

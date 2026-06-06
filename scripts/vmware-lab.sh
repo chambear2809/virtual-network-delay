@@ -14,7 +14,16 @@ set_provider_paths "${PROVIDER}"
 
 VMWARE_VM_ROOT="${VMWARE_VM_ROOT:-${STATE_DIR}/vms}"
 VMWARE_VMRUN_TYPE="${VMWARE_VMRUN_TYPE:-fusion}"
-VMWARE_GUEST_OS="${VMWARE_GUEST_OS:-ubuntu-64}"
+if [[ -z "${VMWARE_GUEST_OS:-}" ]]; then
+  case "$(uname -m)" in
+    aarch64|arm64)
+      VMWARE_GUEST_OS="arm-ubuntu-64"
+      ;;
+    *)
+      VMWARE_GUEST_OS="ubuntu-64"
+      ;;
+  esac
+fi
 VMWARE_HARDWARE_VERSION="${VMWARE_HARDWARE_VERSION:-20}"
 VMWARE_PUBLIC_NETWORK="${VMWARE_PUBLIC_NETWORK:-nat}"
 VMWARE_PRIVATE_NETWORK="${VMWARE_PRIVATE_NETWORK:-hostonly}"
@@ -107,16 +116,27 @@ numvcpus = "${VM_VCPUS}"
 msg.autoAnswer = "TRUE"
 tools.syncTime = "TRUE"
 
-scsi0.present = "TRUE"
-scsi0.virtualDev = "pvscsi"
-scsi0:0.present = "TRUE"
-scsi0:0.fileName = "${disk_file}"
-scsi0:0.deviceType = "scsi-hardDisk"
+pciBridge0.present = "TRUE"
+pciBridge4.present = "TRUE"
+pciBridge4.virtualDev = "pcieRootPort"
+pciBridge4.functions = "8"
+pciBridge5.present = "TRUE"
+pciBridge5.virtualDev = "pcieRootPort"
+pciBridge5.functions = "8"
+pciBridge6.present = "TRUE"
+pciBridge6.virtualDev = "pcieRootPort"
+pciBridge6.functions = "8"
+pciBridge7.present = "TRUE"
+pciBridge7.virtualDev = "pcieRootPort"
+pciBridge7.functions = "8"
 
 sata0.present = "TRUE"
 sata0:0.present = "TRUE"
-sata0:0.fileName = "${seed_file}"
-sata0:0.deviceType = "cdrom-image"
+sata0:0.fileName = "${disk_file}"
+sata0:0.deviceType = "disk"
+sata0:1.present = "TRUE"
+sata0:1.fileName = "${seed_file}"
+sata0:1.deviceType = "cdrom-image"
 
 ethernet0.present = "TRUE"
 ethernet0.virtualDev = "vmxnet3"
@@ -177,20 +197,105 @@ vmrun_cmd() {
   run_cmd vmrun -T "${VMWARE_VMRUN_TYPE}" "$@"
 }
 
+vmware_vmx_public_mac() {
+  local vmx_file="$1"
+
+  awk -F' = ' '
+    $1 == "ethernet0.address" {
+      gsub(/"/, "", $2)
+      print tolower($2)
+      exit
+    }
+  ' "${vmx_file}" 2>/dev/null
+}
+
+date_to_epoch_utc() {
+  local stamp="$1"
+  local epoch
+
+  if epoch="$(date -u -j -f '%Y/%m/%d %H:%M:%S' "${stamp}" +%s 2>/dev/null)"; then
+    printf '%s\n' "${epoch}"
+    return 0
+  fi
+  if epoch="$(date -u -d "${stamp//\//-}" +%s 2>/dev/null)"; then
+    printf '%s\n' "${epoch}"
+    return 0
+  fi
+  return 1
+}
+
+vmware_dhcp_lease_ip_for_mac() {
+  local mac="$1"
+  local min_epoch="${2:-0}"
+  local lease_file
+  local lease_files=()
+  local ip=""
+  local latest_epoch=0
+  local candidate_ip start_date start_time lease_epoch
+
+  [[ -n "${mac}" ]] || return 0
+  if [[ -n "${VMWARE_DHCP_LEASE_FILES:-}" ]]; then
+    IFS=':' read -r -a lease_files <<<"${VMWARE_DHCP_LEASE_FILES}"
+  else
+    lease_files=(
+      /var/db/vmware/vmnet-dhcpd-vmnet8.leases
+      /var/lib/vmware/vmnet8/dhcpd/dhcpd.leases
+    )
+  fi
+
+  for lease_file in "${lease_files[@]}"; do
+    [[ -r "${lease_file}" ]] || continue
+    while read -r candidate_ip start_date start_time; do
+      [[ -n "${candidate_ip}" && -n "${start_date}" && -n "${start_time}" ]] || continue
+      lease_epoch="$(date_to_epoch_utc "${start_date} ${start_time}" || true)"
+      [[ -n "${lease_epoch}" ]] || continue
+      if [[ "${lease_epoch}" -ge "${min_epoch}" && "${lease_epoch}" -ge "${latest_epoch}" ]]; then
+        latest_epoch="${lease_epoch}"
+        ip="${candidate_ip}"
+      fi
+    done < <(awk -v mac="${mac}" '
+      /^lease [0-9.]+ \{/ {
+        lease = $2
+      }
+      /^[[:space:]]*starts / {
+        start_date = $3
+        start_time = $4
+        sub(/;$/, "", start_time)
+      }
+      /hardware ethernet/ {
+        hw = $3
+        sub(/;$/, "", hw)
+        if (tolower(hw) == mac && lease != "" && start_date != "" && start_time != "") {
+          print lease, start_date, start_time
+        }
+      }
+    ' "${lease_file}")
+  done
+
+  if [[ "${ip}" =~ ^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+    printf '%s\n' "${ip}"
+  fi
+}
+
 wait_for_vmware_ip() {
   local vmx_file="$1"
   local timeout_seconds="${2:-420}"
-  local started now ip
+  local min_lease_epoch="${3:-0}"
+  local started now ip public_mac
 
   if bool_is_true "${DRY_RUN}"; then
-    record_dry_run vmrun -T "${VMWARE_VMRUN_TYPE}" getGuestIPAddress "${vmx_file}" -wait >&2
+    record_dry_run vmrun -T "${VMWARE_VMRUN_TYPE}" getGuestIPAddress "${vmx_file}" >&2
     printf '192.0.2.10\n'
     return 0
   fi
 
+  public_mac="$(vmware_vmx_public_mac "${vmx_file}")"
   started="$(date +%s)"
   while true; do
-    ip="$(vmrun -T "${VMWARE_VMRUN_TYPE}" getGuestIPAddress "${vmx_file}" -wait 2>/dev/null || true)"
+    ip="$(vmrun -T "${VMWARE_VMRUN_TYPE}" getGuestIPAddress "${vmx_file}" 2>/dev/null || true)"
+    if [[ ! "${ip}" =~ ^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+      ip="$(vmware_dhcp_lease_ip_for_mac "${public_mac}" "${min_lease_epoch}")"
+    fi
     if [[ "${ip}" =~ ^[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+$ ]]; then
       printf '%s\n' "${ip}"
       return 0
@@ -208,6 +313,7 @@ deploy_lab() {
   local router_vmx
   local backend_vmx
   local router_ip
+  local deploy_started_epoch
 
   require_vmware_cmds
   validate_port backend-port "${BACKEND_PORT}"
@@ -238,10 +344,11 @@ deploy_lab() {
   router_vmx="$(vmware_vmx_path router)"
   backend_vmx="$(vmware_vmx_path backend)"
 
+  deploy_started_epoch="$(date +%s)"
   vmrun_cmd start "${router_vmx}" nogui
   vmrun_cmd start "${backend_vmx}" nogui
 
-  router_ip="$(wait_for_vmware_ip "${router_vmx}" 420)"
+  router_ip="$(wait_for_vmware_ip "${router_vmx}" 420 "${deploy_started_epoch}")"
 
   state_set VMWARE_VMRUN_TYPE "${VMWARE_VMRUN_TYPE}"
   state_set VMWARE_ROUTER_VMX "${router_vmx}"

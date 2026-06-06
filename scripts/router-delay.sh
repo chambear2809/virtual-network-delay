@@ -18,7 +18,7 @@ usage() {
 Usage: router-delay.sh <status|enable|disable> [options]
 
 Options:
-  --provider <docker|kvm|vmware>
+  --provider <docker|kvm|vmware|esxi>
   --lab-name <name>
   --delay-ms <ms>
   --jitter-ms <ms>
@@ -151,9 +151,10 @@ run_router_shell() {
         docker compose -f "${DOCKER_COMPOSE_FILE}" -p "${COMPOSE_PROJECT_NAME}" exec -T router sh -lc "${remote_command}"
       fi
       ;;
-    kvm|vmware)
+    kvm|vmware|esxi)
       [[ -n "${ROUTER_HOST}" ]] || fail "Missing router host. Deploy the lab or pass --router-host."
-      ssh_run "${ROUTER_HOST}" "${ROUTER_SSH_USER}" "${SSH_PRIVATE_KEY_FILE}" "${remote_command}"
+      ssh_run "${ROUTER_HOST}" "${ROUTER_SSH_USER}" "${SSH_PRIVATE_KEY_FILE}" \
+        "$(render_shell_command sudo sh -lc "${remote_command}")"
       ;;
     *)
       fail "Unknown provider: ${TARGET_PROVIDER}"

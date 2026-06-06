@@ -35,6 +35,14 @@ VMware:
 - Ubuntu cloud images are converted to VMDK and configured with NoCloud seed ISOs.
 - `open-vm-tools` is installed so `vmrun getGuestIPAddress` can discover the router public address.
 
+ESXi/vCenter:
+
+- Router VM has one public port-group NIC and one private port-group NIC.
+- Backend VM has only the private port-group NIC.
+- Ubuntu cloud images are converted to streamOptimized VMDK for `govc import.vmdk` and configured with NoCloud seed ISOs.
+- `open-vm-tools` is installed so `govc vm.ip -a -v4 -n <router-public-mac>` can discover the router public address.
+- The default ESXi network mode reuses existing port groups; create mode is explicit because host vSwitch and port-group changes are mutable infrastructure.
+
 ## State Contract
 
 Provider scripts write `.generated/<provider>/<lab>.env`. Operational scripts rely on these fields when present:
@@ -50,6 +58,7 @@ Provider scripts write `.generated/<provider>/<lab>.env`. Operational scripts re
 - `PUBLIC_PORT`
 - Docker-specific: `DOCKER_COMPOSE_FILE`, `COMPOSE_PROJECT_NAME`
 - VMware-specific: `VMWARE_ROUTER_VMX`, `VMWARE_BACKEND_VMX`, `VMWARE_VMRUN_TYPE`
+- ESXi-specific: `ESXI_ROUTER_VM`, `ESXI_BACKEND_VM`, `ESXI_REMOTE_DIR`, `ESXI_NETWORK_MODE`, `ESXI_PUBLIC_NETWORK`, `ESXI_PRIVATE_NETWORK`
 
 ## HAProxy Contract
 
@@ -76,4 +85,5 @@ The default interface expression is `ip route show default | awk '{print $5; exi
 - Docker delay reflects container and Docker Desktop networking behavior; on macOS/Windows Docker Desktop adds a VM layer.
 - KVM default CIDRs are dedicated /24s and may need overriding if they collide with local routes.
 - VMware vmnet1/vmnet8 subnets are host-managed. The private side uses static addressing on the host-only L2 and does not require the host vmnet1 address to be in the same subnet.
+- ESXi public routing depends on the selected public port group providing DHCP or reachable L3 service. The private side uses static addressing and a backend default route via the router private IP.
 - `tc netem` delay is egress-oriented. For strict receiver-ingress TCP experiments, place delay at the receiver ingress path or use IFB/mirred; this skill intentionally keeps a simpler router-egress symptom path.

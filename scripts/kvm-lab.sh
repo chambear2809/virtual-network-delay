@@ -166,6 +166,34 @@ virt_install_backend() {
     --noautoconsole
 }
 
+grant_libvirt_storage_access() {
+  local libvirt_user="libvirt-qemu"
+  local path
+  local storage_file
+
+  bool_is_true "${DRY_RUN}" && return 0
+  id -u "${libvirt_user}" >/dev/null 2>&1 || return 0
+  require_cmd setfacl
+
+  path="${STATE_DIR}"
+  while [[ "${path}" != "/" && -n "${path}" ]]; do
+    run_cmd setfacl -m "u:${libvirt_user}:x" "${path}"
+    path="$(dirname "${path}")"
+  done
+
+  for storage_file in \
+    "${STATE_DIR}/${LAB_NAME}-router.qcow2" \
+    "${STATE_DIR}/${LAB_NAME}-backend.qcow2"; do
+    [[ -f "${storage_file}" ]] && run_cmd setfacl -m "u:${libvirt_user}:rw" "${storage_file}"
+  done
+
+  for storage_file in \
+    "${STATE_DIR}/seed-router.iso" \
+    "${STATE_DIR}/seed-backend.iso"; do
+    [[ -f "${storage_file}" ]] && run_cmd setfacl -m "u:${libvirt_user}:r" "${storage_file}"
+  done
+}
+
 deploy_lab() {
   local image_file
   local ssh_public_key
@@ -193,6 +221,7 @@ deploy_lab() {
   render_seed_files backend "${ssh_public_key}"
   create_seed_iso "${STATE_DIR}/seed-router" "${STATE_DIR}/seed-router.iso"
   create_seed_iso "${STATE_DIR}/seed-backend" "${STATE_DIR}/seed-backend.iso"
+  grant_libvirt_storage_access
 
   virt_install_router
   virt_install_backend
